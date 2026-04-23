@@ -1,0 +1,98 @@
+name: Send Daily Report Email
+
+on:
+  push:
+    paths:
+      - 'reports/**.md'
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get report date
+        id: date
+        run: |
+          REPORT=$(git diff-tree --no-commit-id -r --name-only ${{ github.sha }} | grep '^reports/' | head -1)
+          DATE=$(basename "$REPORT" .md)
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "report=$REPORT" >> $GITHUB_OUTPUT
+
+      - name: Convert Markdown to HTML and send email
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
+        run: |
+          python3 - << 'PYEOF'
+          import smtplib, os, re
+          from email.mime.multipart import MIMEMultipart
+          from email.mime.text import MIMEText
+
+          date = "${{ steps.date.outputs.date }}"
+          report_path = "${{ steps.date.outputs.report }}"
+
+          with open(report_path) as f:
+              md = f.read()
+
+          def md_to_html(text):
+              lines = text.split('\n')
+              html = []
+              in_ul = False
+              for line in lines:
+                  line = re.sub(
+                      r'\[([^\]]+)\]\(([^\)]+)\)',
+                      lambda m: f'<a href="{m.group(2)}" style="color:#0066cc;text-decoration:none">{m.group(1)}</a>',
+                      line
+                  )
+                  if line.startswith('# '):
+                      if in_ul: html.append('</ul>'); in_ul = False
+                      html.append(f'<h1 style="color:#1a1a1a;font-size:22px;border-bottom:3px solid #4a90d9;padding-bottom:8px">{line[2:]}</h1>')
+                  elif line.startswith('## '):
+                      if in_ul: html.append('</ul>'); in_ul = False
+                      html.append(f'<h2 style="color:#444;font-size:16px;margin-top:24px;margin-bottom:6px">{line[3:]}</h2>')
+                  elif line.startswith('- '):
+                      if not in_ul: html.append('<ul style="padding-left:20px;margin:4px 0">'); in_ul = True
+                      html.append(f'<li style="margin:8px 0;line-height:1.6">{line[2:]}</li>')
+                  elif line.strip() == '---':
+                      if in_ul: html.append('</ul>'); in_ul = False
+                      html.append('<hr style="border:none;border-top:1px solid #eee;margin:16px 0">')
+                  elif line.startswith('*') and line.endswith('*') and len(line) > 2:
+                      if in_ul: html.append('</ul>'); in_ul = False
+                      html.append(f'<p style="color:#999;font-size:11px;margin-top:24px"><em>{line[1:-1]}</em></p>')
+                  elif line.strip():
+                      if in_ul: html.append('</ul>'); in_ul = False
+                      html.append(f'<p>{line}</p>')
+                  else:
+                      if in_ul: html.append('</ul>'); in_ul = False
+              if in_ul: html.append('</ul>')
+              return '\n'.join(html)
+
+          github_url = f"https://github.com/conan0220/tech-daily-report/blob/master/reports/{date}.md"
+          html_body = f"""<html>
+          <body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;padding:24px;color:#333;background:#fff">
+          {md_to_html(md)}
+          <hr style="border:none;border-top:1px solid #eee;margin-top:32px">
+          <p style="color:#aaa;font-size:11px">
+            完整報告（Markdown）：<a href="{github_url}" style="color:#0066cc">GitHub</a>
+          </p>
+          </body></html>"""
+
+          user = os.environ['GMAIL_USER']
+          password = os.environ['GMAIL_APP_PASSWORD']
+          recipient = os.environ['RECIPIENT']
+
+          msg = MIMEMultipart('alternative')
+          msg['Subject'] = f'Tech AI Daily | {date}'
+          msg['From'] = user
+          msg['To'] = recipient
+          msg.attach(MIMEText(md, 'plain', 'utf-8'))
+          msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
+              s.login(user, password)
+              s.send_message(msg)
+
+          print(f'EMAIL_SENT to {recipient}')
+          PYEOF

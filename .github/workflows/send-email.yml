@@ -19,11 +19,11 @@ jobs:
           echo "date=$DATE" >> $GITHUB_OUTPUT
           echo "report=$REPORT" >> $GITHUB_OUTPUT
 
-      - name: Convert Markdown to HTML and send email
+      - name: Send HTML email
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
         run: |
           python3 - << 'PYEOF'
           import smtplib, os, re
@@ -81,18 +81,18 @@ jobs:
 
           user = os.environ['GMAIL_USER']
           password = os.environ['GMAIL_APP_PASSWORD']
-          recipient = os.environ['RECIPIENT']
+          recipients = [r.strip() for r in os.environ['RECIPIENTS'].split(',')]
 
           msg = MIMEMultipart('alternative')
           msg['Subject'] = f'Tech AI Daily | {date}'
           msg['From'] = user
-          msg['To'] = recipient
+          msg['To'] = ', '.join(recipients)
           msg.attach(MIMEText(md, 'plain', 'utf-8'))
           msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
           with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
               s.login(user, password)
-              s.send_message(msg)
+              s.sendmail(user, recipients, msg.as_string())
 
-          print(f'EMAIL_SENT to {recipient}')
+          print(f'EMAIL_SENT to: {", ".join(recipients)}')
           PYEOF

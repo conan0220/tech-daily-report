@@ -14,7 +14,8 @@ jobs:
       - name: Get report date
         id: date
         run: |
-          REPORT=$(ls -t reports/*.md | head -1)
+          REPORT=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
+                   | grep -E '^reports/.*\.md$' | sort -r | head -1)
           DATE=$(basename "$REPORT" .md)
           echo "date=$DATE" >> $GITHUB_OUTPUT
 

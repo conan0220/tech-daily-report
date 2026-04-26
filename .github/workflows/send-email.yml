@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'reports/**.md'
-
+  workflow_dispatch:
 jobs:
   send-email:
     runs-on: ubuntu-latest
@@ -14,8 +14,14 @@ jobs:
       - name: Get report date
         id: date
         run: |
-          REPORT=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
-                   | grep -E '^reports/.*\.md$' | sort -r | head -1)
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ]; then
+            REPORT=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
+                     | grep -E '^reports/.*\.md$' | sort -r | head -1)
+          fi
+          # fallback：手動觸發、首次 push、或 diff 沒抓到 → 用最大檔名
+          if [ -z "$REPORT" ]; then
+            REPORT=$(ls reports/*.md | sort -r | head -1)
+          fi
           DATE=$(basename "$REPORT" .md)
           echo "date=$DATE" >> $GITHUB_OUTPUT
 
